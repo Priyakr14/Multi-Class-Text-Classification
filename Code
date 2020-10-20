@@ -1,0 +1,423 @@
+# Import Libraries
+
+import numpy as np
+import pandas as pd
+from sklearn.feature_extraction.text import TfidfVectorizer
+import sklearn.feature_extraction.text as text
+from sklearn import model_selection, preprocessing, linear_model, naive_bayes, metrics, svm
+from sklearn.naive_bayes import MultinomialNB
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.svm import LinearSVC
+from sklearn.model_selection import cross_val_score
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import classification_report
+from textblob import TextBlob
+from nltk.stem import PorterStemmer,SnowballStemmer
+from textblob import Word
+from sklearn.feature_extraction.text import CountVectorizer,TfidfVectorizer
+from nltk.corpus import stopwords
+from nltk.tokenize import sent_tokenize, word_tokenize
+from nltk.tokenize.toktok import ToktokTokenizer
+
+from io import StringIO
+import os
+import string
+import gensim
+from gensim.models import Word2Vec
+import itertools
+import scipy
+from scipy import spatial
+import seaborn as sns
+import matplotlib.pyplot as plt
+import re
+import nltk
+tokenizer = ToktokTokenizer()  
+
+import warnings
+warnings.filterwarnings("ignore")
+
+nltk.download('stopwords')
+
+nltk.download('wordnet')
+
+# Data Cleaning
+
+df = pd.read_csv("consumer_complaints.csv")
+
+df.head()
+
+df.isnull().sum()/df.shape[0]*100
+
+df1 = df[['complaint_id','date_received','product','issue','company','state','submitted_via','company_response_to_consumer','timely_response','consumer_disputed?','consumer_complaint_narrative']]
+
+df1 = df1[pd.notnull(df1['consumer_complaint_narrative'])]
+
+# EDA
+
+fig,ax = plt.subplots(figsize=(18,6))
+sns.countplot(x='product',data=df1)
+
+pd.crosstab(df1['product'],df1['consumer_disputed?']).plot(kind='bar')
+
+df1['date_received'] = pd.to_datetime(df1['date_received'])
+df1.date_received.min(),df1.date_received.max()
+df1['month'] = df1['date_received'].dt.month
+sns.countplot(x='month',data=df1)
+
+sns.countplot(x='timely_response',data=df1)
+
+# Text Data Preprocessing
+
+df1['consumer_complaint_narrative']  = df1['consumer_complaint_narrative'].apply(str)
+df1['consumer_complaint_narrative']  = df1['consumer_complaint_narrative'].apply(lambda x: ' '.join([i.lower() for i in x.split()]))
+df1['consumer_complaint_narrative'] = df1['consumer_complaint_narrative'].str.replace(r"xx+\s","")
+df1['consumer_complaint_narrative']  = df1['consumer_complaint_narrative'].str.replace(r'[^\w\s]',"")
+
+df1['consumer_complaint_narrative'].head(1)
+
+# Removing stopwords
+stop = stopwords.words('english')
+df1['consumer_complaint_narrative']  = df1['consumer_complaint_narrative'].apply(lambda x: ' '.join([i for i in x.split() if i not in stop]))
+df1['consumer_complaint_narrative'].head(1)
+
+#Lemmetization
+from textblob import Word
+
+df1['consumer_complaint_narrative'] =df1['consumer_complaint_narrative'].apply(lambda x:' '.join([Word(i).lemmatize() for i in x.split()]))
+
+# Word Cloud
+for product_name in df1['product'].unique():
+    print(product_name)
+    all_words = ' '.join([text for text in df1.loc[df1['product'].str.contains(product_name),'consumer_complaint_narrative']])
+    from wordcloud import WordCloud
+    wordcloud = WordCloud(width=800, height=500, random_state=21, max_font_size=110).generate(all_words)
+
+    plt.figure(figsize=(10, 7))
+    plt.imshow(wordcloud, interpolation="bilinear")
+    plt.axis('off')
+    plt.show()
+
+# Traditional Machine Learning Models
+
+#Train-Test Split
+train_x, valid_x, train_y, valid_y = train_test_split(df1['consumer_complaint_narrative'], df1['product'],stratify=df1['product'], 
+                                                    test_size=0.25)
+
+##label encoding target variable
+enc = preprocessing.LabelEncoder()
+train_y = enc.fit_transform(train_y)
+valid_y = enc.fit_transform(valid_y)
+
+##tf-idf verctor representation
+tfidf_vect = TfidfVectorizer(analyzer='word', token_pattern=r'\w{1,}', max_features=5000)
+tfidf_vect.fit(df1['consumer_complaint_narrative'])
+xtrain_tfidf =  tfidf_vect.transform(train_x)
+xvalid_tfidf =  tfidf_vect.transform(valid_x)
+
+## Logistic Regression with Count Vectorizer
+from sklearn.pipeline import Pipeline
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.feature_extraction.text import TfidfTransformer
+from sklearn.linear_model import LogisticRegression
+text_clf_LR = Pipeline([('vect', CountVectorizer()),
+                      ('tfidf', TfidfTransformer()),
+                      ('clf-LR', LogisticRegression()),
+])
+text_clf_LR = text_clf_LR.fit(train_x, train_y)
+predictedLR = text_clf_LR.predict(valid_x)
+np.mean(predictedLR == valid_y)
+
+## Logistic Regression with Tfidf Vectorizer
+from sklearn.pipeline import Pipeline
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.feature_extraction.text import TfidfTransformer
+from sklearn.linear_model import LogisticRegression
+text_clf_LR = Pipeline([('vect', TfidfVectorizer()),
+                      ('tfidf', TfidfTransformer()),
+                      ('clf-LR', LogisticRegression()),
+])
+text_clf_LR = text_clf_LR.fit(train_x, train_y)
+predictedLR = text_clf_LR.predict(valid_x)
+np.mean(predictedLR == valid_y)
+print(classification_report(valid_y, predictedLR,target_names=df1['product'].unique()))
+
+## Naive Bayes with Count Vectorizer
+from sklearn.pipeline import Pipeline
+from sklearn.naive_bayes import MultinomialNB
+text_clf_NB = Pipeline([('vect', CountVectorizer()),
+                      ('tfidf', TfidfTransformer()),
+                     ('clf', MultinomialNB()),
+])
+text_clf_NB = text_clf_NB.fit(train_x, train_y)
+predicted = text_clf_NB.predict(valid_x)
+np.mean(predicted == valid_y)
+
+## Naive Bayes with TFidf
+from sklearn.pipeline import Pipeline
+from sklearn.naive_bayes import MultinomialNB
+text_clf_NB = Pipeline([('vect', TfidfVectorizer()),
+                      ('tfidf', TfidfTransformer()),
+                     ('clf', MultinomialNB()),
+])
+text_clf_NB = text_clf_NB.fit(train_x, train_y)
+predicted = text_clf_NB.predict(valid_x)
+np.mean(predicted == valid_y)
+
+
+## SVM with count vectorizer
+from sklearn.metrics import accuracy_score, confusion_matrix
+from sklearn.svm import LinearSVC
+text_clf_svm = Pipeline([('vect', CountVectorizer()),
+                      ('tfidf', TfidfTransformer()),
+                      ('clf-svm', LinearSVC()),
+])
+text_clf_svm = text_clf_svm.fit(train_x, train_y)
+predicted_svm = text_clf_svm.predict(valid_x)
+accuracy_score(predicted_svm, valid_y)
+
+## SVM with TFidf vectorizer
+from sklearn.metrics import accuracy_score, confusion_matrix
+from sklearn.svm import LinearSVC
+text_clf_svm = Pipeline([('vect', TfidfVectorizer()),
+                      ('tfidf', TfidfTransformer()),
+                      ('clf-svm', LinearSVC()),
+])
+text_clf_svm = text_clf_svm.fit(train_x, train_y)
+predicted_svm = text_clf_svm.predict(valid_x)
+accuracy_score(predicted_svm, valid_y)
+print(classification_report(valid_y, predicted_svm,target_names=df1['product'].unique()))
+
+## RandomForest with count vectorizer
+from sklearn.metrics import accuracy_score, confusion_matrix
+from sklearn.ensemble import RandomForestClassifier
+text_clf_rf = Pipeline([('vect', CountVectorizer()),
+                      ('tfidf', TfidfTransformer()),
+                      ('clf', RandomForestClassifier(n_estimators = 200, max_depth = 50)),
+])
+text_clf_rf = text_clf_rf.fit(train_x, train_y)
+predicted_rf = text_clf_rf.predict(valid_x)
+accuracy_score(predicted_rf, valid_y)
+
+## RandomForest with Tfidf vectorizer
+from sklearn.metrics import accuracy_score, confusion_matrix
+from sklearn.ensemble import RandomForestClassifier
+text_clf_rf = Pipeline([('vect', TfidfVectorizer()),
+                      ('tfidf', TfidfTransformer()),
+                      ('clf', RandomForestClassifier(n_estimators = 200, max_depth = 50)),
+])
+text_clf_rf = text_clf_rf.fit(train_x, train_y)
+predicted_rf = text_clf_rf.predict(valid_x)
+accuracy_score(predicted_rf, valid_y)
+
+# XGBoost
+
+#XGBoost
+from xgboost import XGBClassifier
+xgb_model = XGBClassifier(max_depth=10, n_estimators=80, colsample_bytree=.7, gamma=0, reg_alpha=4, eta=0.3, silent=1, subsample=0.8)
+xgb_model.fit(xtrain_tfidf, train_y)
+
+xgb_predict = xgb_model.predict(xvalid_tfidf)
+xgb_accuracy = metrics.accuracy_score(xgb_predict, valid_y)
+print ("XGBoost > Accuracy: ", xgb_accuracy)
+
+from sklearn.metrics import classification_report
+print(classification_report(valid_y, xgb_predict,target_names=df1['product'].unique()))
+
+from sklearn.metrics import confusion_matrix
+conf_mat = confusion_matrix(valid_y, xgb_predict)
+fig, ax = plt.subplots(figsize=(8,6))
+sns.heatmap(conf_mat, annot=True, fmt="d", cmap="BuPu",xticklabels=df1['product'].unique(),yticklabels=df1['product'].unique())
+plt.ylabel('Actual')
+plt.xlabel('Predicted')
+plt.show()
+
+# **Deep Learning Models**
+
+# CNN with GloVe word embeddings
+
+from keras.preprocessing.text import Tokenizer
+from keras.preprocessing.sequence import pad_sequences
+from keras.utils import to_categorical
+from keras.layers import Dense, Input, LSTM, Embedding, Dropout, Activation
+from keras.layers import Bidirectional, GlobalMaxPool1D, Conv1D, SimpleRNN
+from keras.models import Model
+from keras.models import Sequential
+from keras import initializers, regularizers, constraints, optimizers, layers
+from keras.layers import Dense, Input, Flatten, Dropout, BatchNormalization
+from keras.layers import Conv1D, MaxPooling1D, Embedding
+from keras.models import Sequential
+
+#Train-Test Split
+train_x, valid_x, train_y, valid_y = train_test_split(df1['consumer_complaint_narrative'], df1['product'],stratify=df1['product'], 
+                                                    test_size=0.25)
+
+total_complaints = np.append(train_x.values,valid_x.values)
+tokenizer = Tokenizer(num_words=25000)
+tokenizer.fit_on_texts(train_x.values)#total_complaints
+train_sequences = tokenizer.texts_to_sequences(train_x.values)
+test_sequences = tokenizer.texts_to_sequences(valid_x.values)
+
+word_index = tokenizer.word_index# dictionary containing words and their index
+print('Found %s unique tokens.' % len(word_index))
+
+MAX_SEQUENCE_LENGTH = max([len(c.split()) for c in total_complaints])
+MAX_SEQUENCE_LENGTH
+
+train_data = pad_sequences(train_sequences, maxlen=MAX_SEQUENCE_LENGTH,padding='post')
+test_data = pad_sequences(test_sequences, maxlen=MAX_SEQUENCE_LENGTH,padding='post')
+
+print(train_data.shape)
+print(test_data.shape)
+
+enc = preprocessing.LabelEncoder()
+train_labels = enc.fit_transform(train_y)
+test_labels = enc.fit_transform(valid_y)
+
+print(enc.classes_)
+print(np.unique(train_labels, return_counts=True))
+print(np.unique(test_labels, return_counts=True))
+
+labels_train = to_categorical(np.asarray(train_labels))
+labels_test = to_categorical(np.asarray(test_labels))
+print('Shape of data tensor:', train_data.shape)
+print('Shape of label tensor:', labels_train.shape)
+print('Shape of label tensor:', labels_test.shape)
+
+# Word embedding
+embeddings_index = {}
+f = open('/glove.6B.300d.txt')
+for line in f:
+    values = line.split()
+    word = values[0]
+    coefs = np.asarray(values[1:], dtype='float32')
+    embeddings_index[word] = coefs
+f.close()
+
+print('Found %s word vectors.' % len(embeddings_index))
+
+EMBEDDING_DIM = 300
+embedding_matrix = np.zeros((len(word_index) + 1, EMBEDDING_DIM))
+for word, i in word_index.items():
+    embedding_vector = embeddings_index.get(word)
+    if embedding_vector is not None:
+        # words not found in embedding index will be all-zeros.
+        embedding_matrix[i] = embedding_vector
+
+vocab_size = len(tokenizer.word_index)+1
+
+#CNN model Building
+model = Sequential()
+model.add(Embedding(len(word_index) + 1,
+                            EMBEDDING_DIM,
+                            weights=[embedding_matrix],
+                            input_length=MAX_SEQUENCE_LENGTH,
+                            trainable=True))
+model.add(Dropout(0.3))
+model.add(Conv1D(128, 5, activation="relu"))
+model.add(MaxPooling1D(5))
+model.add(Dropout(0.3))
+model.add(BatchNormalization())
+model.add(Conv1D(128, 5, activation="relu"))
+model.add(MaxPooling1D(5))
+model.add(Dropout(0.3))
+model.add(BatchNormalization())
+model.add(Flatten())
+model.add(Dense(128, activation="relu"))
+model.add(Dense(11, activation="softmax"))
+model.compile(loss='categorical_crossentropy',
+ optimizer="rmsprop",
+ metrics=['acc'])
+
+history = model.fit(train_data, labels_train,
+ batch_size=64,
+ epochs=8,
+ validation_data=(test_data, labels_test))
+
+fig1 = plt.figure()
+plt.plot(history.history['loss'],'r',linewidth=3.0)
+plt.plot(history.history['val_loss'],'b',linewidth=3.0)
+plt.legend(['Training loss', 'Validation Loss'],fontsize=18)
+plt.xlabel('Epochs ',fontsize=16)
+plt.ylabel('Loss',fontsize=16)
+plt.title('Loss Curves :CNN',fontsize=16)
+plt.show()
+
+#predictions on test data
+predicted=model.predict(test_data)
+#model evaluation
+import sklearn
+from sklearn.metrics import precision_recall_fscore_support as score
+precision, recall, fscore, support = score(labels_test, predicted.round())
+print('precision: \n{}'.format(precision))
+print('recall: \n{}'.format(recall))
+print('fscore: \n{}'.format(fscore))
+print('support: \n{}'.format(support))
+
+print(classification_report(labels_test, predicted.round(),target_names=df1['product'].unique()))
+
+fig1 = plt.figure()
+plt.plot(history.history['acc'],'r',linewidth=3.0)
+plt.plot(history.history['val_acc'],'b',linewidth=3.0)
+plt.legend(['Training acc', 'Validation acc'],fontsize=18)
+plt.xlabel('Epochs ',fontsize=16)
+plt.ylabel('Accuracy',fontsize=16)
+plt.title('Accuracy Curves :CNN',fontsize=16)
+plt.show()
+
+# RNN with Bidirectional LSTM model
+
+# Bidirectional LSTM
+
+model = Sequential()
+model.add(Embedding(len(word_index) + 1,
+                            EMBEDDING_DIM,
+                            weights=[embedding_matrix],
+                            input_length=MAX_SEQUENCE_LENGTH,
+                            trainable=True))
+model.add(Bidirectional(LSTM(80, dropout_U = 0.2, dropout_W = 0.2)))
+model.add(Dense(11,activation='softmax'))
+model.compile(loss='categorical_crossentropy',
+              optimizer='rmsprop',
+              metrics=['accuracy'])
+
+
+
+history = model.fit(train_data, labels_train,
+ batch_size=384,
+ epochs=8,
+ validation_data=(test_data, labels_test))
+
+fig1 = plt.figure()
+plt.plot(history.history['loss'],'r',linewidth=3.0)
+plt.plot(history.history['val_loss'],'b',linewidth=3.0)
+plt.legend(['Training loss', 'Validation Loss'],fontsize=18)
+plt.xlabel('Epochs ',fontsize=16)
+plt.ylabel('Loss',fontsize=16)
+plt.title('Loss Curves :RNN - LSTM',fontsize=16)
+plt.show()
+
+fig1 = plt.figure()
+plt.plot(history.history['accuracy'],'r',linewidth=3.0)
+plt.plot(history.history['val_accuracy'],'b',linewidth=3.0)
+plt.legend(['Training acc', 'Validation acc'],fontsize=18)
+plt.xlabel('Epochs ',fontsize=16)
+plt.ylabel('Accuracy',fontsize=16)
+plt.title('Accuracy Curves :RNN - LSTM',fontsize=16)
+plt.show()
+
+#predictions on test data
+predicted=model.predict(test_data)
+#model evaluation
+import sklearn
+from sklearn.metrics import precision_recall_fscore_support as score
+precision, recall, fscore, support = score(labels_test, predicted.round())
+print('precision: \n{}'.format(precision))
+print('recall: \n{}'.format(recall))
+print('fscore: \n{}'.format(fscore))
+print('support: \n{}'.format(support))
+print("############################")
+
+print(classification_report(labels_test, predicted.round(),target_names=df1['product'].unique()))
